@@ -73,9 +73,6 @@ void Reactor::update(double total_dt) {
         // 3. Thermal-Hydraulics (Fuel and Coolant temperatures)
         // Fuel heat balance: M_f C_pf dT_f/dt = Power_gen - Heat_transfer_to_coolant
         // dT_f/dt = ( (power_ * nominal_power) - H_tc * (T_f - T_c) ) / Thermal_capacity_f
-        double power_thermal = power_ * 1.0; // Normalized scale
-        double heat_gen = power_thermal * 3000.0; // MW equivalent
-        
         // Simplified temperature derivative models
         double dtf_dt = ( (power_ * tf_nominal_) - fuel_temp_ - heat_transfer_coeff_ * (fuel_temp_ - coolant_temp_) ) / tau_f_;
         
