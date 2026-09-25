@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(pwr_server
     src/main.cpp
     src/reactor.cpp
+    src/simulation.cpp
+    src/server.cpp
 )
 
 target_include_directories(pwr_server PRIVATE
