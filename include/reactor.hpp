@@ -21,7 +21,7 @@ public:
     double getCoolantTemp() const { return coolant_temp_; }      // Coolant temperature (°C)
     double getTotalReactivity() const { return total_reactivity_pcm_; } // Total reactivity (pcm)
     double getControlRodPos() const { return rod_pos_; }         // Rod position (0.0 to 1.0)
-    double getDelayedNeutronPrecursor() const { return precursor_; }
+    double getSimulationTime() const { return simulation_time_seconds; }
     bool isScrammed() const { return is_scrammed_; }
 
     // Reset simulation
@@ -34,6 +34,7 @@ private:
     double fuel_temp_;      // Fuel temperature (T_f) in °C
     double coolant_temp_;   // Coolant temperature (T_c) in °C
     double rod_pos_;        // Control rod position (0.0 inserted, 1.0 withdrawn)
+    double simulation_time_seconds; // Cumulative simulation time
     bool is_scrammed_;
 
     // Reactivity components (in pcm, 1 pcm = 10^-5 Δk/k)
@@ -52,7 +53,6 @@ private:
     const double alpha_mod_ = -5.0;       // pcm / °C (Moderator temperature coefficient)
 
     // Thermal-hydraulics constants
-    const double nominal_power_mw_ = 3000.0; // Thermal MW (typical 3-loop PWR)
     const double tf_nominal_ = 600.0;     // Nominal fuel temp (°C)
     const double tc_nominal_ = 315.0;     // Nominal coolant temp (°C)
     

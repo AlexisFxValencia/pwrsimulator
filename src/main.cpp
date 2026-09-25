@@ -17,18 +17,23 @@
 Reactor reactor;
 std::mutex reactor_mutex;
 bool running = true;
+bool is_paused = false;
+int time_scale = 1; // Integer acceleration factor (1x, 2x, 5x, 10x)
 
-// Background simulation thread (20 Hz update rate)
+// Background simulation thread (20 Hz tick rate)
 void simulation_loop() {
-    auto last_time = std::chrono::steady_clock::now();
     while (running) {
-        auto current_time = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsed = current_time - last_time;
-        last_time = current_time;
-
         {
             std::lock_guard<std::mutex> lock(reactor_mutex);
-            reactor.update(elapsed.count());
+            if (!is_paused) {
+                // Fixed dt per step (e.g. 0.05s per tick), repeated time_scale times
+                double fixed_dt = 0.05;
+                int steps = time_scale;
+                if (steps < 1) steps = 1;
+                for (int i = 0; i < steps; ++i) {
+                    reactor.update(fixed_dt);
+                }
+            }
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -55,7 +60,6 @@ double extract_json_value(const std::string& body, const std::string& key) {
     if (pos == std::string::npos) return 0.0;
     size_t end = body.find_first_of(",}", pos);
     std::string val_str = body.substr(pos + 1, end - pos - 1);
-    // Trim whitespace
     val_str.erase(0, val_str.find_first_not_of(" \t\n\r"));
     val_str.erase(val_str.find_last_not_of(" \t\n\r") + 1);
     try {
@@ -63,6 +67,16 @@ double extract_json_value(const std::string& body, const std::string& key) {
     } catch (...) {
         return 0.0;
     }
+}
+
+bool extract_json_bool(const std::string& body, const std::string& key) {
+    size_t pos = body.find("\"" + key + "\"");
+    if (pos == std::string::npos) return false;
+    pos = body.find(':', pos);
+    if (pos == std::string::npos) return false;
+    size_t end = body.find_first_of(",}", pos);
+    std::string val_str = body.substr(pos + 1, end - pos - 1);
+    return val_str.find("true") != std::string::npos;
 }
 
 void handle_client(int client_socket) {
@@ -79,7 +93,6 @@ void handle_client(int client_socket) {
     std::stringstream req_stream(request);
     req_stream >> method >> path;
 
-    // Find body if POST
     std::string body = "";
     size_t header_end = request.find("\r\n\r\n");
     if (header_end != std::string::npos) {
@@ -107,7 +120,10 @@ void handle_client(int client_socket) {
              << "\"coolant_temp\":" << reactor.getCoolantTemp() << ","
              << "\"reactivity\":" << reactor.getTotalReactivity() << ","
              << "\"rod_pos\":" << reactor.getControlRodPos() << ","
-             << "\"scrammed\":" << (reactor.isScrammed() ? "true" : "false")
+             << "\"sim_time\":" << reactor.getSimulationTime() << ","
+             << "\"scrammed\":" << (reactor.isScrammed() ? "true" : "false") << ","
+             << "\"paused\":" << (is_paused ? "true" : "false") << ","
+             << "\"time_scale\":" << time_scale
              << "}";
         response_content = json.str();
         content_type = "application/json";
@@ -115,18 +131,26 @@ void handle_client(int client_socket) {
     else if (method == "POST" && path == "/api/control") {
         std::lock_guard<std::mutex> lock(reactor_mutex);
         if (body.find("rod_pos") != std::string::npos) {
-            double pos = extract_json_value(body, "rod_pos");
-            reactor.setControlRodPos(pos);
-        } else if (body.find("delta_pcm") != std::string::npos) {
-            double delta = extract_json_value(body, "delta_pcm");
-            reactor.adjustControlRods(delta);
+            reactor.setControlRodPos(extract_json_value(body, "rod_pos"));
+        } 
+        if (body.find("delta_pcm") != std::string::npos) {
+            reactor.adjustControlRods(extract_json_value(body, "delta_pcm"));
+        }
+        if (body.find("paused") != std::string::npos) {
+            is_paused = extract_json_bool(body, "paused");
+        }
+        if (body.find("time_scale") != std::string::npos) {
+            int ts = static_cast<int>(extract_json_value(body, "time_scale"));
+            if (ts >= 1) time_scale = ts;
         }
 
         std::ostringstream json;
         json << "{"
              << "\"status\":\"success\","
              << "\"rod_pos\":" << reactor.getControlRodPos() << ","
-             << "\"reactivity\":" << reactor.getTotalReactivity()
+             << "\"reactivity\":" << reactor.getTotalReactivity() << ","
+             << "\"paused\":" << (is_paused ? "true" : "false") << ","
+             << "\"time_scale\":" << time_scale
              << "}";
         response_content = json.str();
         content_type = "application/json";
@@ -140,6 +164,8 @@ void handle_client(int client_socket) {
     else if (method == "POST" && path == "/api/reset") {
         std::lock_guard<std::mutex> lock(reactor_mutex);
         reactor.reset();
+        is_paused = false;
+        time_scale = 1;
         response_content = "{\"status\":\"reset\"}";
         content_type = "application/json";
     } 
@@ -161,7 +187,6 @@ void handle_client(int client_socket) {
 }
 
 int main() {
-    // Start background simulation thread
     std::thread sim_thread(simulation_loop);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -199,7 +224,6 @@ int main() {
             continue;
         }
 
-        // Handle each client connection in a detached thread or synchronously
         std::thread(handle_client, client_socket).detach();
     }
 
